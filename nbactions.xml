@@ -10,7 +10,7 @@
                 <goal>org.codehaus.mojo:exec-maven-plugin:1.2.1:exec</goal>
             </goals>
             <properties>
-                <exec.args>-classpath %classpath com.level3.hiper.dyconn.Main</exec.args>
+                <exec.args>-classpath %classpath com.level3.hiper.dyconn.be.Main</exec.args>
                 <exec.executable>java</exec.executable>
             </properties>
         </action>
@@ -47,7 +47,7 @@
                 <goal>org.codehaus.mojo:exec-maven-plugin:1.2.1:exec</goal>
             </goals>
             <properties>
-                <exec.args>-classpath %classpath com.level3.hiper.dyconn.Main</exec.args>
+                <exec.args>-classpath %classpath com.level3.hiper.dyconn.be.Main</exec.args>
                 <exec.executable>java</exec.executable>
             </properties>
         </action>

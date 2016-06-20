@@ -6,11 +6,14 @@
 package com.level3.hiper.dyconn.messaging;
 
 import com.level3.hiper.dyconn.config.Config;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Properties;
 import javax.jms.ConnectionFactory;
 import javax.jms.Connection;
 import javax.jms.Destination;
 import javax.jms.JMSException;
+import javax.jms.MessageConsumer;
 import javax.jms.MessageProducer;
 import javax.jms.Session;
 import javax.jms.TextMessage;
@@ -27,95 +30,130 @@ import org.slf4j.LoggerFactory;
  */
 public class Broker {
 
-	private static final Logger log = LoggerFactory.getLogger(Broker.class);
+   private static final Logger log = LoggerFactory.getLogger(Broker.class);
 
-	private static Broker broker = null;
+   private static Broker broker = null;
 
-	String connectionFactory;
-	String connectionString;
-	String queueName;
-	Session session;
-	MessageProducer messageProducer;
-	Connection connection;
+   String connectionFactory;
+   String connectionString;
+   String queueName;
+   Session session;
+   MessageProducer messageProducer;
+   MessageConsumer messageConsumer;
+   Connection connection;
 
-	public void initialize() throws NamingException, JMSException {
+   public void initialize() throws NamingException, JMSException {
 
-		String env = Config.instance().env();
-		connectionFactory = Config.instance().getString("queue." + env + ".connect.factory");
-		connectionString = Config.instance().getString("queue." + env + ".connect.string");
-		queueName = Config.instance().getString("queue." + env + ".name");
+      String env = Config.instance().env();
+      connectionFactory = Config.instance().getString("queue." + env + ".connect.factory");
+      connectionString = Config.instance().getString("queue." + env + ".connect.string");
+      queueName = Config.instance().getString("queue." + env + ".name");
 
-		Properties props = new Properties();
-		props.setProperty("java.naming.factory.initial", connectionFactory);
-		props.setProperty("connectionfactory.qpidConnectionFactory", connectionString);
-		props.setProperty("destination.queueName", queueName);
-		Context context = new InitialContext(props);
+      Properties props = new Properties();
+      props.setProperty("java.naming.factory.initial", connectionFactory);
+      props.setProperty("connectionfactory.qpidConnectionFactory", connectionString);
+      props.setProperty("destination.queueName", queueName);
+      Context context = new InitialContext(props);
 
-		ConnectionFactory cf = (ConnectionFactory) context.lookup("qpidConnectionFactory");
-		connection = cf.createConnection();
-		connection.start();
-		session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
-		Destination destination = (Destination) context.lookup("queueName");
+      ConnectionFactory cf = (ConnectionFactory) context.lookup("qpidConnectionFactory");
+      connection = cf.createConnection();
+      connection.start();
+      session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
+      Destination destination = (Destination) context.lookup("queueName");
+      context.close();
 
-		messageProducer = session.createProducer(destination);
-		context.close();
+      messageProducer = session.createProducer(destination);
+      messageConsumer = session.createConsumer(destination);
 
-	}
+   }
 
-	public void send(String message, String type) throws JMSException {
+   public void send(String message, String type) throws JMSException {
 
-		int numRetries = 3;
-		for (int i = 0; i < numRetries; i++) {
-			try {
-				TextMessage msg = session.createTextMessage(message);
-				msg.setStringProperty("operation", type);
-				log.debug("sending to queue'{}' msg: {}", queueName, msg);
+      int numRetries = 3;
+      for (int i = 0; i < numRetries; i++) {
+         try {
+            TextMessage msg = session.createTextMessage(message);
+            msg.setStringProperty("operation", type);
+            log.debug("sending to queue'{}' msg: {}", queueName, msg);
 
-				messageProducer.send(msg);
-				break;
-			} catch (JMSException exc) {
-				if (i + 1 < numRetries) {
-					log.warn("unable to send message. attempting reconnect.");
-					try {
-						reset();
-						Thread.sleep(1000);
-					} catch (Exception ex) {
-						// eat
-					}
-				} else { // give up
-					throw exc;
-				}
-			}
-		}
-	}
+            messageProducer.send(msg);
+            break;
+         } catch (JMSException exc) {
+            if (i + 1 < numRetries) {
+               log.warn("unable to send message. attempting reconnect.");
+               try {
+                  reset();
+                  Thread.sleep(1000);
+               } catch (Exception ex) {
+                  // eat
+               }
+            } else { // give up
+               throw exc;
+            }
+         }
+      }
+   }
 
-	public void shutdown() {
-		try {
-			if (session != null) {
-				session.close();
-			}
-		} catch (JMSException ex) {
-			log.error("closing session", ex);
-		}
-		try {
-			if (connection != null) {
-				connection.close();
-			}
-		} catch (JMSException ex) {
-			log.error("closing session", ex);
-		}
-	}
+   public Map receive() throws JMSException {
 
-	public void reset() throws NamingException, JMSException {
-		shutdown();
-		initialize();
-	}
+      Map<String, String> ret = new HashMap<>();
 
-	public static Broker instance() {
-		if (broker == null) {
-			broker = new Broker();
-		}
-		return broker;
-	}
+      while (true) {
+         try {
+
+            TextMessage msg = (TextMessage) messageConsumer.receive(5000);
+
+            if ( msg != null) {
+               log.debug(msg.toString());
+               log.debug("received from '{}' msg: {}", queueName, msg);
+
+               ret.put("body", msg.getText());
+               ret.put("operation", msg.getStringProperty("operation"));
+               log.debug("map: " + ret.toString());
+               break;
+            }
+
+         } catch (Throwable exc) {
+            log.warn("unable to receive message. attempting reconnect.", exc);
+            try {
+               reset();
+               Thread.sleep(5000);
+            } catch (Exception ex) {
+               // eat
+            }
+         }
+      }
+
+      return ret;
+   }
+
+   public void shutdown() {
+      try {
+         if (session != null) {
+            session.close();
+         }
+      } catch (JMSException ex) {
+         log.error("closing session", ex);
+      }
+      try {
+         if (connection != null) {
+            connection.close();
+         }
+      } catch (JMSException ex) {
+         log.error("closing session", ex);
+      }
+   }
+
+   public void reset() throws NamingException, JMSException {
+      shutdown();
+      initialize();
+   }
+
+   public static Broker instance() {
+      if (broker == null) {
+         broker = new Broker();
+      }
+      return broker;
+   }
 
 }
