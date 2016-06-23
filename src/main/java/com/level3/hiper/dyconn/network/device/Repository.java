@@ -22,13 +22,13 @@ import org.apache.commons.io.LineIterator;
  */
 public class Repository {
 
-   private static Repository theRepo;
+   private static Repository instance;
 
    public static Repository instance() {
-      if (theRepo == null) {
-         theRepo = new Repository();
+      if (instance == null) {
+         instance = new Repository();
       }
-      return theRepo;
+      return instance;
    }
 
    private Map<String, Info> deviceInfoMap = new HashMap<>();
